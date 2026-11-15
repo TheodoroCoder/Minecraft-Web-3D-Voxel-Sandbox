@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minecraft Web 3D - Voxel Sandbox</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700&display=swap');
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #87CEEB;
+            font-family: 'Inter', sans-serif;
+        }
+
+        #game-canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .pixel-font {
+            font-family: 'Press Start 2P', monospace;
+        }
+
+        /* Mira central (Crosshair) */
+        #crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+            display: none;
+        }
+
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(255, 255, 255, 0.85);
+            mix-blend-mode: difference;
+        }
+
+        #crosshair::before {
+            top: 9px;
+            left: 0;
+            width: 20px;
+            height: 2px;
+        }
+
+        #crosshair::after {
+            top: 0;
+            left: 9px;
+            width: 2px;
+            height: 20px;
+        }
+
+        /* Hotbar estilo Minecraft */
+        .hotbar-slot {
+            width: 54px;
+            height: 54px;
+            background: rgba(30, 30, 30, 0.75);
+            border: 3px solid #555555;
+            box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.8);
+            transition: transform 0.1s ease, border-color 0.1s ease;
+            position: relative;
+        }
+
+        .hotbar-slot.active {
+            border-color: #ffffff;
+            transform: scale(1.08);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.5), inset 0 0 6px rgba(255, 255, 255, 0.3);
+            z-index: 2;
+        }
+
+        /* Tela inicial / Pausa */
+        #overlay {
+            background: radial-gradient(circle at center, rgba(20, 30, 48, 0.75) 0%, rgba(10, 15, 25, 0.92) 100%);
+            backdrop-filter: blur(6px);
+        }
+
+        .mc-btn {
+            background: #5b8731;
+            border: 3px solid #2d4616;
+            border-top-color: #82b94c;
+            border-left-color: #82b94c;
+            text-shadow: 2px 2px 0px #2d4616;
+            transition: all 0.15s ease;
+        }
+
+        .mc-btn:hover {
+            background: #6a9c3b;
+            transform: translateY(-2px);
+        }
+
+        .mc-btn:active {
+            transform: translateY(1px);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Canvas 3D -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Mira central -->
+    <div id="crosshair"></div>
+
+    <!-- HUD Superior (Coordenadas e FPS) -->
+    <div id="hud-info" class="fixed top-4 left-4 text-white text-xs sm:text-sm bg-black/40 px-3 py-2 rounded-lg backdrop-blur-sm pointer-events-none hidden z-10 font-mono">
+        <div id="coords-display">XYZ: 0 / 0 / 0</div>
+        <div id="block-target-display" class="text-gray-300 mt-1">Bloco: Nenhum</div>
+    </div>
+
+    <!-- Barra de Inventário (Hotbar) -->
+    <div id="hotbar-container" class="fixed bottom-5 left-1/2 -translate-x-1/2 flex gap-2 bg-black/50 p-2 rounded-xl border border-white/15 backdrop-blur-md z-10 hidden">
+        <!-- Os slots são preenchidos via JS -->
+    </div>
+
+    <!-- Mensagem flutuante temporária -->
+    <div id="toast-msg" class="fixed bottom-24 left-1/2 -translate-x-1/2 text-white pixel-font text-xs sm:text-sm drop-shadow-[0_2px_2px_rgba(0,0,0,0.9)] pointer-events-none opacity-0 transition-opacity duration-300 z-10">
+        Grama
+    </div>
+
+    <!-- Tela Inicial / Pausa -->
+    <div id="overlay" class="fixed inset-0 flex flex-col items-center justify-center p-6 text-white z-20">
+        <div class="max-w-lg w-full bg-zinc-900/90 border-2 border-zinc-700 rounded-2xl p-6 sm:p-8 shadow-2xl text-center">
+            <h1 class="pixel-font text-2xl sm:text-3xl text-emerald-400 mb-2 drop-shadow-[0_3px_0_rgba(0,0,0,0.8)]">
+                MINECRAFT 3D
+            </h1>
+            <p class="text-zinc-400 text-sm mb-6">Voxel Sandbox Engine em Three.js</p>
+
+            <div class="bg-zinc-950/80 border border-zinc-800 rounded-xl p-4 mb-6 text-left space-y-2.5 text-xs sm:text-sm">
+                <div class="flex justify-between border-b border-zinc-800 pb-1.5">
+                    <span class="text-zinc-400">Mover-se:</span>
+                    <span class="font-semibold text-white">W, A, S, D</span>
+                </div>
+                <div class="flex justify-between border-b border-zinc-800 pb-1.5">
+                    <span class="text-zinc-400">Pular:</span>
+                    <span class="font-semibold text-white">Barra de Espaço</span>
+                </div>
+                <div class="flex justify-between border-b border-zinc-800 pb-1.5">
+                    <span class="text-zinc-400">Olhar ao redor:</span>
+                    <span class="font-semibold text-white">Mover o Mouse</span>
+                </div>
+                <div class="flex justify-between border-b border-zinc-800 pb-1.5">
+                    <span class="text-zinc-400">Quebrar bloco:</span>
+                    <span class="font-semibold text-red-400">Clique Esquerdo</span>
+                </div>
+                <div class="flex justify-between border-b border-zinc-800 pb-1.5">
+                    <span class="text-zinc-400">Colocar bloco:</span>
+                    <span class="font-semibold text-emerald-400">Clique Direito</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-zinc-400">Selecionar bloco:</span>
+                    <span class="font-semibold text-amber-300">Teclas 1 a 5 ou Scroll</span>
+                </div>
+            </div>
+
+            <button id="start-btn" class="mc-btn w-full py-4 px-6 rounded-xl pixel-font text-sm sm:text-base text-white cursor-pointer shadow-lg">
+                CLIQUE PARA JOGAR
+            </button>
+            <p id="lock-warning" class="text-amber-400 text-xs mt-3 hidden">
+                Pressione ESC a qualquer momento para pausar.
+            </p>
+        </div>
+    </div>
+
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        /**
+         * MINECRAFT WEB 3D - VOXEL ENGINE
+         * Implementação completa em arquivo único com texturas procedurais,
+         * geração de relevo com árvores, colisão AABB e raycasting.
+         */
+
+        // ==========================================
+        // 1. CONFIGURAÇÕES E CONSTANTES DO MUNDO
+        // ==========================================
+        const WORLD_SIZE = 32; // 32x32 blocos no plano XZ
+        const WORLD_HEIGHT = 24; // Altura máxima
+        const GRAVITY = 28.0;
+        const JUMP_VELOCITY = 9.2;
+        const PLAYER_SPEED = 6.2;
+        const PLAYER_HEIGHT = 1.75;
+        const PLAYER_EYE_HEIGHT = 1.58;
+        const PLAYER_RADIUS = 0.3;
+        const REACH_DISTANCE = 6.5;
+
+        // Tipos de blocos disponíveis
+        const BLOCK_TYPES = [
+            { id: 1, name: 'Grama',   key: '1' },
+            { id: 2, name: 'Terra',   key: '2' },
+            { id: 3, name: 'Pedra',   key: '3' },
+            { id: 4, name: 'Madeira', key: '4' },
+            { id: 5, name: 'Folhas',  key: '5' }
+        ];
+
+        // ==========================================
+        // 2. GERADOR DE TEXTURAS PIXEL ART (CANVAS)
+        // ==========================================
+        function createPixelTexture(drawFn) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16;
+            canvas.height = 16;
+            const ctx = canvas.getContext('2d');
+            drawFn(ctx);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            return texture;
+        }
+
+        function fillNoise(ctx, baseHex, variance, alpha = 1) {
+            const r = parseInt(baseHex.slice(1, 3), 16);
+            const g = parseInt(baseHex.slice(3, 5), 16);
+            const b = parseInt(baseHex.slice(5, 7), 16);
+
+            for (let y = 0; y < 16; y++) {
+                for (let x = 0; x < 16; x++) {
+                    const delta = Math.floor((Math.random() - 0.5) * variance);
+                    const nr = Math.min(255, Math.max(0, r + delta));
+                    const ng = Math.min(255, Math.max(0, g + delta));
+                    const nb = Math.min(255, Math.max(0, b + delta));
+                    ctx.fillStyle = `rgba(${nr},${ng},${nb},${alpha})`;
+                    ctx.fillRect(x, y, 1, 1);
+                }
+            }
+        }
+
+        // Geração das texturas individuais
+        const textures = {
+            grassTop: createPixelTexture(ctx => fillNoise(ctx, '#5da130', 32)),
+            dirt: createPixelTexture(ctx => {
+                fillNoise(ctx, '#79553a', 28);
+                // Pequenas pedrinhas na terra
+                ctx.fillStyle = '#5a3e28';
+                ctx.fillRect(3, 4, 2, 2);
+                ctx.fillRect(11, 10, 2, 1);
+                ctx.fillRect(7, 13, 2, 2);
+            }),
+            grassSide: createPixelTexture(ctx => {
+                fillNoise(ctx, '#79553a', 26);
+                // Topo verde da grama escorrendo
+                for (let x = 0; x < 16; x++) {
+                    const drop = 3 + Math.floor(Math.random() * 3);
+                    for (let y = 0; y < drop; y++) {
+                        ctx.fillStyle = (x + y) % 2 === 0 ? '#5da130' : '#4e8c26';
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            }),
+            stone: createPixelTexture(ctx => {
+                fillNoise(ctx, '#828282', 30);
+                ctx.fillStyle = '#686868';
+                ctx.fillRect(2, 3, 4, 2);
+                ctx.fillRect(9, 8, 5, 2);
+                ctx.fillRect(4, 12, 4, 2);
+            }),
+            woodSide: createPixelTexture(ctx => {
+                fillNoise(ctx, '#66492b', 22);
+                // Ranhuras verticais da casca
+                for (let x = 0; x < 16; x += 3) {
+                    ctx.fillStyle = '#4a331d';
+                    ctx.fillRect(x, 0, 1, 16);
+                }
+            }),
+            woodTop: createPixelTexture(ctx => {
+                fillNoise(ctx, '#b89464', 18);
+                ctx.strokeStyle = '#735330';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(2.5, 2.5, 11, 11);
+                ctx.strokeRect(5.5, 5.5, 5, 5);
+            }),
+            leaves: createPixelTexture(ctx => {
+                fillNoise(ctx, '#38761d', 36);
+                ctx.fillStyle = '#234d11';
+                for (let i = 0; i < 24; i++) {
+                    ctx.fillRect(Math.floor(Math.random() * 16), Math.floor(Math.random() * 16), 1, 1);
+                }
+            })
+        };
+
+        // Materiais por ID de bloco (BoxGeometry faces: +x, -x, +y, -y, +z, -z)
+        const blockMaterials = {
+            1: [ // Grama
+                new THREE.MeshLambertMaterial({ map: textures.grassSide }),
+                new THREE.MeshLambertMaterial({ map: textures.grassSide }),
+                new THREE.MeshLambertMaterial({ map: textures.grassTop }),
+                new THREE.MeshLambertMaterial({ map: textures.dirt }),
+                new THREE.MeshLambertMaterial({ map: textures.grassSide }),
+                new THREE.MeshLambertMaterial({ map: textures.grassSide })
+            ],
+            2: new THREE.MeshLambertMaterial({ map: textures.dirt }),
+            3: new THREE.MeshLambertMaterial({ map: textures.stone }),
+            4: [ // Madeira
+                new THREE.MeshLambertMaterial({ map: textures.woodSide }),
+                new THREE.MeshLambertMaterial({ map: textures.woodSide }),
+                new THREE.MeshLambertMaterial({ map: textures.woodTop }),
+                new THREE.MeshLambertMaterial({ map: textures.woodTop }),
+                new THREE.MeshLambertMaterial({ map: textures.woodSide }),
+                new THREE.MeshLambertMaterial({ map: textures.woodSide })
+            ],
+            5: new THREE.MeshLambertMaterial({ map: textures.leaves })
+        };
+
+        // ==========================================
+        // 3. CENA, CÂMERA E RENDERIZADOR
+        // ==========================================
+        const canvas = document.getElementById('game-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB);
+        scene.fog = new THREE.Fog(0x87CEEB, 18, 48);
+
+        const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.rotation.order = 'YXZ'; // Essencial para câmera FPS sem inclinação lateral
+
+        // Iluminação
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff8e7, 0.75);
+        dirLight.position.set(25, 45, 20);
+        scene.add(dirLight);
+
+        // Geometria compartilhada para todos os blocos
+        const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+
+        // Wireframe de destaque do bloco mirado
+        const highlightGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.006, 1.006, 1.006));
+        const highlightMat = new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 });
+        const highlightBox = new THREE.LineSegments(highlightGeo, highlightMat);
+        highlightBox.visible = false;
+        scene.add(highlightBox);
+
+        // ==========================================
+        // 4. GERENCIAMENTO DO MUNDO VOXEL
+        // ==========================================
+        // Mapa chave "x,y,z" -> { type: number, mesh: THREE.Mesh }
+        const worldBlocks = new Map();
+        const blockMeshes = []; // Array para Raycasting rápido
+
+        function getBlockKey(x, y, z) {
+            return `${x},${y},${z}`;
+        }
+
+        function hasBlock(x, y, z) {
+            return worldBlocks.has(getBlockKey(x, y, z));
+        }
+
+        function addBlock(x, y, z, type) {
+            const key = getBlockKey(x, y, z);
+            if (worldBlocks.has(key)) return;
+
+            const mesh = new THREE.Mesh(blockGeometry, blockMaterials[type]);
+            mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+            mesh.userData = { bx: x, by: y, bz: z, type };
+
+            scene.add(mesh);
+            worldBlocks.set(key, { type, mesh });
+            blockMeshes.push(mesh);
+        }
+
+        function removeBlock(x, y, z) {
+            const key = getBlockKey(x, y, z);
+            const data = worldBlocks.get(key);
+            if (!data) return;
+
+            scene.remove(data.mesh);
+            worldBlocks.delete(key);
+
+            const idx = blockMeshes.indexOf(data.mesh);
+            if (idx > -1) blockMeshes.splice(idx, 1);
+        }
+
+        // Função de ruído suave 2D para relevo natural
+        function pseudoNoise2D(x, z) {
+            const n1 = Math.sin(x * 0.14) * Math.cos(z * 0.14);
+            const n2 = Math.sin(x * 0.07 + 1.5) * Math.sin(z * 0.09 + 0.8);
+            const n3 = Math.cos((x + z) * 0.18) * 0.4;
+            return (n1 + n2 + n3) / 2.4; // Aproximadamente [-1, 1]
+        }
+
+        function generateTree(tx, ty, tz) {
+            const trunkHeight = 4 + Math.floor(Math.random() * 2);
+            // Tronco
+            for (let y = 0; y < trunkHeight; y++) {
+                addBlock(tx, ty + y, tz, 4);
+            }
+            // Copa de folhas
+            const leafStart = ty + trunkHeight - 2;
+            const leafEnd = ty + trunkHeight + 1;
+            for (let y = leafStart; y <= leafEnd; y++) {
+                const radius = (y === leafEnd) ? 1 : 2;
+                for (let dx = -radius; dx <= radius; dx++) {
+                    for (let dz = -radius; dz <= radius; dz++) {
+                        // Arredonda cantos
+                        if (Math.abs(dx) === radius && Math.abs(dz) === radius && y === leafEnd) continue;
+                        if (dx === 0 && dz === 0 && y < ty + trunkHeight) continue;
+                        addBlock(tx + dx, y, tz + dz, 5);
+                    }
+                }
+            }
+        }
+
+        function generateWorld() {
+            const half = Math.floor(WORLD_SIZE / 2);
+            const treeCandidates = [];
+
+            for (let x = -half; x < half; x++) {
+                for (let z = -half; z < half; z++) {
+                    const hVal = pseudoNoise2D(x, z);
+                    const surfaceY = Math.max(2, Math.floor(6 + hVal * 4));
+
+                    for (let y = 0; y <= surfaceY; y++) {
+                        if (y === surfaceY) {
+                            addBlock(x, y, z, 1); // Grama no topo
+                        } else if (y >= surfaceY - 2) {
+                            addBlock(x, y, z, 2); // Terra logo abaixo
+                        } else {
+                            addBlock(x, y, z, 3); // Pedra nas profundezas
+                        }
+                    }
+
+                    // Candidato para árvore (longe das bordas)
+                    if (x > -half + 3 && x < half - 3 && z > -half + 3 && z < half - 3) {
+                        if (Math.random() < 0.022 && (Math.abs(x) > 3 || Math.abs(z) > 3)) {
+                            treeCandidates.push({ x, y: surfaceY + 1, z });
+                        }
+                    }
+                }
+            }
+
+            // Planta árvores respeitando distância mínima
+            const placedTrees = [];
+            for (const tree of treeCandidates) {
+                const tooClose = placedTrees.some(t => Math.hypot(t.x - tree.x, t.z - tree.z) < 5);
+                if (!tooClose) {
+                    generateTree(tree.x, tree.y, tree.z);
+                    placedTrees.push(tree);
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. HOTBAR E INTERFACE DO USUÁRIO
+        // ==========================================
+        let selectedSlot = 0; // Índice 0 a 4
+        const hotbarContainer = document.getElementById('hotbar-container');
+        const toastMsg = document.getElementById('toast-msg');
+        let toastTimeout = null;
+
+        // Gera miniaturas visuais das texturas para a hotbar
+        function getBlockIconDataURL(blockId) {
+            const c = document.createElement('canvas');
+            c.width = 32;
+            c.height = 32;
+            const ctx = c.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+
+            let texCanvas;
+            if (blockId === 1) texCanvas = textures.grassSide.image;
+            else if (blockId === 2) texCanvas = textures.dirt.image;
+            else if (blockId === 3) texCanvas = textures.stone.image;
+            else if (blockId === 4) texCanvas = textures.woodSide.image;
+            else if (blockId === 5) texCanvas = textures.leaves.image;
+
+            ctx.drawImage(texCanvas, 0, 0, 32, 32);
+            return c.toDataURL();
+        }
+
+        function initHotbar() {
+            hotbarContainer.innerHTML = '';
+            BLOCK_TYPES.forEach((block, index) => {
+                const slot = document.createElement('div');
+                slot.className = `hotbar-slot rounded-lg flex items-center justify-center cursor-pointer ${index === selectedSlot ? 'active' : ''}`;
+                slot.dataset.index = index;
+
+                const img = document.createElement('img');
+                img.src = getBlockIconDataURL(block.id);
+                img.className = 'w-8 h-8 object-contain shadow-md';
+                img.style.imageRendering = 'pixelated';
+
+                const num = document.createElement('span');
+                num.textContent = block.key;
+                num.className = 'absolute top-0.5 left-1.5 text-[10px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,1)]';
+
+                slot.appendChild(img);
+                slot.appendChild(num);
+                hotbarContainer.appendChild(slot);
+            });
+        }
+
+        function selectSlot(index) {
+            selectedSlot = ((index % BLOCK_TYPES.length) + BLOCK_TYPES.length) % BLOCK_TYPES.length;
+            const slots = hotbarContainer.querySelectorAll('.hotbar-slot');
+            slots.forEach((s, i) => {
+                s.classList.toggle('active', i === selectedSlot);
+            });
+
+            // Mostra nome do bloco selecionado
+            toastMsg.textContent = BLOCK_TYPES[selectedSlot].name;
+            toastMsg.style.opacity = '1';
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toastMsg.style.opacity = '0';
+            }, 1400);
+        }
+
+        // ==========================================
+        // 6. JOGADOR, FÍSICA E COLISÃO AABB
+        // ==========================================
+        const player = {
+            position: new THREE.Vector3(0.5, 14, 0.5),
+            velocity: new THREE.Vector3(0, 0, 0),
+            yaw: 0,
+            pitch: 0,
+            onGround: false
+        };
+
+        const keys = {
+            KeyW: false,
+            KeyA: false,
+            KeyS: false,
+            KeyD: false,
+            Space: false
+        };
+
+        // Verifica se a caixa de colisão (AABB) do jogador intersecta algum bloco sólido
+        function checkCollision(pos) {
+            const minX = Math.floor(pos.x - PLAYER_RADIUS);
+            const maxX = Math.floor(pos.x + PLAYER_RADIUS);
+            const minY = Math.floor(pos.y);
+            const maxY = Math.floor(pos.y + PLAYER_HEIGHT);
+            const minZ = Math.floor(pos.z - PLAYER_RADIUS);
+            const maxZ = Math.floor(pos.z + PLAYER_RADIUS);
+
+            for (let x = minX; x <= maxX; x++) {
+                for (let y = minY; y <= maxY; y++) {
+                    for (let z = minZ; z <= maxZ; z++) {
+                        if (hasBlock(x, y, z)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Verifica se colocar um bloco em (bx, by, bz) prenderia o jogador
+        function wouldIntersectPlayer(bx, by, bz) {
+            const pMinX = player.position.x - PLAYER_RADIUS;
+            const pMaxX = player.position.x + PLAYER_RADIUS;
+            const pMinY = player.position.y;
+            const pMaxY = player.position.y + PLAYER_HEIGHT;
+            const pMinZ = player.position.z - PLAYER_RADIUS;
+            const pMaxZ = player.position.z + PLAYER_RADIUS;
+
+            return (
+                pMaxX > bx && pMinX < bx + 1 &&
+                pMaxY > by && pMinY < by + 1 &&
+                pMaxZ > bz && pMinZ < bz + 1
+            );
+        }
+
+        function updatePlayer(dt) {
+            // Direção horizontal baseada apenas no Yaw da câmera
+            const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+            const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+
+            const moveDir = new THREE.Vector3(0, 0, 0);
+            if (keys.KeyW) moveDir.add(forward);
+            if (keys.KeyS) moveDir.sub(forward);
+            if (keys.KeyD) moveDir.add(right);
+            if (keys.KeyA) moveDir.sub(right);
+
+            if (moveDir.lengthSq() > 0) {
+                moveDir.normalize();
+            }
+
+            player.velocity.x = moveDir.x * PLAYER_SPEED;
+            player.velocity.z = moveDir.z * PLAYER_SPEED;
+
+            // Pulo
+            if (keys.Space && player.onGround) {
+                player.velocity.y = JUMP_VELOCITY;
+                player.onGround = false;
+            }
+
+            // Gravidade
+            player.velocity.y -= GRAVITY * dt;
+
+            // Movimento e colisão separados por eixo (deslizamento suave nas paredes)
+            // Eixo X
+            player.position.x += player.velocity.x * dt;
+            if (checkCollision(player.position)) {
+                player.position.x -= player.velocity.x * dt;
+            }
+
+            // Eixo Z
+            player.position.z += player.velocity.z * dt;
+            if (checkCollision(player.position)) {
+                player.position.z -= player.velocity.z * dt;
+            }
+
+            // Eixo Y
+            player.position.y += player.velocity.y * dt;
+            if (checkCollision(player.position)) {
+                if (player.velocity.y < 0) {
+                    player.onGround = true;
+                }
+                player.position.y -= player.velocity.y * dt;
+                player.velocity.y = 0;
+            } else {
+                player.onGround = false;
+            }
+
+            // Respawn caso caia fora do mapa
+            if (player.position.y < -15) {
+                player.position.set(0.5, 16, 0.5);
+                player.velocity.set(0, 0, 0);
+            }
+
+            // Atualiza posição e rotação da câmera
+            camera.position.set(
+                player.position.x,
+                player.position.y + PLAYER_EYE_HEIGHT,
+                player.position.z
+            );
+            camera.rotation.y = player.yaw;
+            camera.rotation.x = player.pitch;
+        }
+
+        // ==========================================
+        // 7. RAYCASTING E INTERAÇÃO COM BLOCOS
+        // ==========================================
+        const raycaster = new THREE.Raycaster();
+        raycaster.far = REACH_DISTANCE;
+        const screenCenter = new THREE.Vector2(0, 0);
+        let currentTarget = null;
+
+        function updateTargetBlock() {
+            raycaster.setFromCamera(screenCenter, camera);
+            const intersects = raycaster.intersectObjects(blockMeshes, false);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                currentTarget = {
+                    block: hit.object.userData,
+                    normal: hit.face.normal
+                };
+
+                highlightBox.position.set(
+                    currentTarget.block.bx + 0.5,
+                    currentTarget.block.by + 0.5,
+                    currentTarget.block.bz + 0.5
+                );
+                highlightBox.visible = true;
+
+                const bType = BLOCK_TYPES.find(b => b.id === currentTarget.block.type);
+                document.getElementById('block-target-display').textContent =
+                    `Alvo: ${bType ? bType.name : 'Bloco'} (${currentTarget.block.bx}, ${currentTarget.block.by}, ${currentTarget.block.bz})`;
+            } else {
+                currentTarget = null;
+                highlightBox.visible = false;
+                document.getElementById('block-target-display').textContent = 'Alvo: Nenhum';
+            }
+        }
+
+        // Clique esquerdo (minerar) e clique direito (construir)
+        window.addEventListener('mousedown', (e) => {
+            if (document.pointerLockElement !== canvas) return;
+            if (!currentTarget) return;
+
+            const { bx, by, bz } = currentTarget.block;
+
+            if (e.button === 0) {
+                // Quebrar bloco
+                removeBlock(bx, by, bz);
+                updateTargetBlock();
+            } else if (e.button === 2) {
+                // Colocar bloco adjacente à face atingida
+                const nx = bx + Math.round(currentTarget.normal.x);
+                const ny = by + Math.round(currentTarget.normal.y);
+                const nz = bz + Math.round(currentTarget.normal.z);
+
+                if (ny >= 0 && ny < WORLD_HEIGHT && !hasBlock(nx, ny, nz) && !wouldIntersectPlayer(nx, ny, nz)) {
+                    const chosenType = BLOCK_TYPES[selectedSlot].id;
+                    addBlock(nx, ny, nz, chosenType);
+                    updateTargetBlock();
+                }
+            }
+        });
+
+        // Evita menu de contexto ao clicar com botão direito
+        window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // ==========================================
+        // 8. CONTROLES (POINTER LOCK, TECLADO, SCROLL)
+        // ==========================================
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('start-btn');
+        const crosshair = document.getElementById('crosshair');
+        const hudInfo = document.getElementById('hud-info');
+
+        startBtn.addEventListener('click', () => {
+            canvas.requestPointerLock();
+        });
+
+        document.addEventListener('pointerlockchange', () => {
+            const isLocked = document.pointerLockElement === canvas;
+            if (isLocked) {
+                overlay.classList.add('hidden');
+                crosshair.style.display = 'block';
+                hudInfo.classList.remove('hidden');
+                hotbarContainer.classList.remove('hidden');
+            } else {
+                overlay.classList.remove('hidden');
+                startBtn.textContent = 'CONTINUAR JOGANDO';
+                crosshair.style.display = 'none';
+                hudInfo.classList.add('hidden');
+                hotbarContainer.classList.add('hidden');
+                // Reseta teclas presas ao pausar
+                Object.keys(keys).forEach(k => keys[k] = false);
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement !== canvas) return;
+
+            const sensitivity = 0.0022;
+            player.yaw -= e.movementX * sensitivity;
+            player.pitch -= e.movementY * sensitivity;
+
+            // Limita olhar para cima/baixo a quase 90 graus
+            const maxPitch = Math.PI / 2 - 0.02;
+            player.pitch = Math.max(-maxPitch, Math.min(maxPitch, player.pitch));
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (keys.hasOwnProperty(e.code)) {
+                keys[e.code] = true;
+            }
+
+            // Seleção de slot pelas teclas 1 a 5
+            if (e.key >= '1' && e.key <= '5') {
+                selectSlot(parseInt(e.key, 10) - 1);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (keys.hasOwnProperty(e.code)) {
+                keys[e.code] = false;
+            }
+        });
+
+        // Seleção de bloco com a roda do mouse (Scroll)
+        window.addEventListener('wheel', (e) => {
+            if (document.pointerLockElement !== canvas) return;
+            if (e.deltaY > 0) {
+                selectSlot(selectedSlot + 1);
+            } else if (e.deltaY < 0) {
+                selectSlot(selectedSlot - 1);
+            }
+        });
+
+        // Responsividade da janela
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // ==========================================
+        // 9. LOOP PRINCIPAL DO JOGO
+        // ==========================================
+        let lastTime = performance.now();
+        const coordsDisplay = document.getElementById('coords-display');
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min((now - lastTime) / 1000, 0.05); // Cap de 50ms para evitar saltos na física
+            lastTime = now;
+
+            if (document.pointerLockElement === canvas) {
+                updatePlayer(dt);
+                updateTargetBlock();
+
+                coordsDisplay.textContent =
+                    `XYZ: ${player.position.x.toFixed(1)} / ${player.position.y.toFixed(1)} / ${player.position.z.toFixed(1)}`;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Inicialização
+        window.onload = function () {
+            generateWorld();
+            initHotbar();
+            // Posiciona o jogador no topo do terreno no centro
+            for (let y = WORLD_HEIGHT; y >= 0; y--) {
+                if (hasBlock(0, y, 0)) {
+                    player.position.set(0.5, y + 1.2, 0.5);
+                    break;
+                }
+            }
+            updatePlayer(0);
+            animate(performance.now());
+        };
+    </script>
+</body>
+</html>
